@@ -17,8 +17,8 @@
 void trap_entry();
 void pop_tf(trapframe_t*);
 
-volatile uint64_t tohost;
-volatile uint64_t fromhost;
+extern volatile uint64_t tohost;
+extern volatile uint64_t fromhost;
 
 static void do_tohost(uint64_t tohost_value)
 {
@@ -210,7 +210,7 @@ void handle_trap(trapframe_t* tf)
 static void coherence_torture()
 {
   // cause coherence misses without affecting program semantics
-  unsigned int random = ENTROPY;
+  uint64_t random = ENTROPY;
   while (1) {
     uintptr_t paddr = DRAM_BASE + ((random % (2 * (MAX_TEST_PAGES + 1) * PGSIZE)) & -4);
 #ifdef __riscv_atomic
@@ -225,7 +225,7 @@ static void coherence_torture()
 
 void vm_boot(uintptr_t test_addr)
 {
-  unsigned int random = ENTROPY;
+  uint64_t random = ENTROPY;
   if (read_csr(mhartid) > 0)
     coherence_torture();
 
@@ -253,10 +253,10 @@ void vm_boot(uintptr_t test_addr)
 # error
 #endif
   uintptr_t vm_choice = SATP_MODE_CHOICE;
-  uintptr_t sptbr_value = ((uintptr_t)l1pt >> PGSHIFT)
+  uintptr_t satp_value = ((uintptr_t)l1pt >> PGSHIFT)
                         | (vm_choice * (SATP_MODE & ~(SATP_MODE<<1)));
-  write_csr(sptbr, sptbr_value);
-  if (read_csr(sptbr) != sptbr_value)
+  write_csr(satp, satp_value);
+  if (read_csr(satp) != satp_value)
     assert(!"unsupported satp mode");
 
   // Set up PMPs if present, ignoring illegal instruction trap if not.
@@ -267,7 +267,7 @@ void vm_boot(uintptr_t test_addr)
                 "csrw pmpaddr0, %1\n\t"
                 "csrw pmpcfg0, %0\n\t"
                 ".align 2\n\t"
-                "1:"
+                "1: csrw mtvec, t0"
                 : : "r" (pmpc), "r" (pmpa) : "t0");
 
   // set up supervisor trap handling
@@ -278,8 +278,8 @@ void vm_boot(uintptr_t test_addr)
     (1 << CAUSE_FETCH_PAGE_FAULT) |
     (1 << CAUSE_LOAD_PAGE_FAULT) |
     (1 << CAUSE_STORE_PAGE_FAULT));
-  // FPU on; accelerator on; allow supervisor access to user memory access
-  write_csr(mstatus, MSTATUS_FS | MSTATUS_XS);
+  // FPU on; accelerator on; vector unit on
+  write_csr(mstatus, MSTATUS_FS | MSTATUS_XS | MSTATUS_VS);
   write_csr(mie, 0);
 
   random = 1 + (random % MAX_TEST_PAGES);
